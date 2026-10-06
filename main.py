@@ -39,7 +39,9 @@ while (_is_True == "ERROR" or main_password == "") and number > 0:
     main_password = getpass.getpass(f"主密码错误或不能为空，还剩{number}次机会,请重新输入主密码：")
     _is_True = Verify.verify_password(main_password)
 
-recognition = Command.Command(main_password)
+URL = input("请输入你的服务器URL，没有请直接ENTER")
+
+recognition = Command.Command(main_password, URL)
 del _is_True
 del number
 print("OK.")
