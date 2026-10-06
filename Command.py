@@ -10,14 +10,13 @@ from Save_Password.VaultManager import VAULT_FOLDER
 from Fix_file import get_base_dir
 from Cloud import Save_file
 from Cloud import Get_file
+from Cloud import Gitee_api
 
 OPTIONS_FILE = os.path.join(Fix_file.get_base_dir(), "Options.op")
 
-class Command:
-    ###################################
-    CLOUD_URL = "http://127.0.0.1:8000"
-    ###################################
-    def __init__(self, main_password=None):
+class Command():
+    def __init__(self, main_password=None, CLOUD_URL="http://127.0.0.1:8000"):
+        self.CLOUD_URL = CLOUD_URL
         with open(OPTIONS_FILE,"r") as file:
             options = json.load(file)
 
@@ -73,9 +72,11 @@ class Command:
 云端命令：
   cloud true                         开启云端备份
   cloud false                        关闭云端备份
-  cloud backup                       手动上传 Password/ 下所有 .dat 到云端
-  cloud restore                      从云端下载所有 .dat 覆盖本地
+  cloud backup <cloud_path>          手动上传 Password/ 下所有 .dat 到云端
+  cloud restore <cloud_path>         从云端下载所有 .dat 覆盖本地
   cloud status                       查看云端开关和最近一次备份时间
+说明：
+  <cloud_path>                       选择gitee或者server
 """)
         elif action == "add":
             self._cmd_add(args)
@@ -361,28 +362,37 @@ class Command:
             json.dump(self.options, file, ensure_ascii=False)
 
     def _cmd_cloud(self, args):
-        if len(args) == 1 and args[0] == "backup":
-            self._cloud_backup()
-            return
-        if len(args) == 1 and args[0] == "restore":
-            self._cloud_restore()
-            return
-        if len(args) == 1 and args[0] == "status":
-            self._cloud_status()
+        if not args:
+            print("用法：cloud true / cloud false / cloud backup [gitee|server] / cloud restore [gitee|server] / cloud status")
             return
 
-        if len(args) != 1:
-            print("用法：cloud true / cloud false / cloud backup / cloud restore / cloud status")
-            return
-        
-        if args[0] == "false":
-            self.options["cloud"] = False
-            print("OK.")
-        elif args[0] == "true":
+        action = args[0].lower()
+        backend = args[1].lower() if len(args) >= 2 else "server"  # 默认 server
+
+        if action == "true":
             self.options["cloud"] = True
             print("OK.")
+        elif action == "false":
+            self.options["cloud"] = False
+            print("OK.")
+        elif action == "backup":
+            if backend == "gitee":
+                self._cloud_backup_gitee()
+            elif backend == "server":
+                self._cloud_backup()
+            else:
+                print(f"未知的云端后端：{backend}")
+        elif action == "restore":
+            if backend == "gitee":
+                self._cloud_restore_gitee()
+            elif backend == "server":
+                self._cloud_restore()
+            else:
+                print(f"未知的云端后端：{backend}")
+        elif action == "status":
+            self._cloud_status()
         else:
-            print("用法：cloud true / cloud false / cloud backup / cloud restore / cloud status")
+            print("用法：cloud true / cloud false / cloud backup [gitee|server] / cloud restore [gitee|server] / cloud status")
 
     def _cloud_user_name(self):
         """Read the user name from user_name.name, 'cat' is used as the fallback."""
@@ -393,7 +403,8 @@ class Command:
         except OSError:
             user_name = ""
         if not user_name:
-            user_name = "cat"
+            print("请先设置用户名！")
+            self._cmd_exit(args="")
         return user_name
 
     def _cloud_dat_files(self):
@@ -435,6 +446,79 @@ class Command:
         else:
             print(f"---云端备份完成：成功 {success} 个，失败 {failed} 个---")
 
+    def _cloud_backup_gitee(self):
+        """上传所有 .dat 到 Gitee 仓库"""
+        user_name = self._cloud_user_name()
+        token = self.options.get("gitee_token", "")
+        if not token:
+            print("---未配置 gitee_token，请在 Options.op 里添加---")
+            return
+
+        api = Gitee_api.Gitee_API(
+            token,
+            self.options.get("gitee_owner", "Interesting_Cat"),
+            self.options.get("gitee_repo", "cat-vault-server-side-saving"),
+        )
+
+        success = 0
+        failed = 0
+        for file_name in self._cloud_dat_files():
+            file_path = os.path.join(VAULT_FOLDER, file_name)
+            try:
+                with open(file_path, "rb") as f:
+                    content = f.read()
+                remote_path = f"{user_name}/{file_name}"
+                if api.upload(remote_path, content):
+                    success += 1
+                else:
+                    failed += 1
+            except Exception as error:
+                failed += 1
+                print(f"---上传 {file_name} 失败：{error}---")
+
+        if failed == 0 and success > 0:
+            self.options["last_backup"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self._persist_options()
+        print(f"---Gitee 备份完成：成功 {success} 个，失败 {failed} 个---")
+
+
+    def _cloud_restore_gitee(self):
+        """从 Gitee 仓库下载所有 .dat 覆盖本地"""
+        user_name = self._cloud_user_name()
+        token = self.options.get("gitee_token", "")
+        if not token:
+            print("---未配置 gitee_token，请在 Options.op 里添加---")
+            return
+
+        api = Gitee_api.Gitee_API(
+            token,
+            self.options.get("gitee_owner", "Interesting_Cat"),
+            self.options.get("gitee_repo", "cat-vault-server-side-saving"),
+        )
+
+        # 收集要下载的文件名
+        names = {"index.dat"}
+        for file_name in self._cloud_dat_files():
+            names.add(file_name)
+        try:
+            if self.vault is not None:
+                for file_id in self.vault.load_index():
+                    names.add(f"{file_id}.dat")
+        except Exception:
+            pass
+
+        replaced = 0
+        for file_name in sorted(names):
+            remote_path = f"{user_name}/{file_name}"
+            content = api.download(remote_path)
+            if content is None:
+                continue
+            target = os.path.join(VAULT_FOLDER, file_name)
+            with open(target, "wb") as f:
+                f.write(content)
+            replaced += 1
+        print(f"---Gitee 恢复完成：已覆盖 {replaced} 个本地文件---")
+
     def _cloud_restore(self):
         """Download every known .dat from the cloud and replace the local files."""
         user_name = self._cloud_user_name()
@@ -472,19 +556,25 @@ class Command:
         print(f"服务器：{self.CLOUD_URL}")
 
     def _check_options(self):
-        expected = {"cloud", "last_backup"}  #目标options的key
+        expected = {"cloud", "last_backup", "gitee_token", "gitee_owner", "gitee_repo"}
         extra = set(self.options) - expected
         missing = expected - set(self.options)
         return extra, missing
+
 
     def _fix_options(self, extras, missings):
         if extras:
             for extra in extras:
                 del self.options[extra]
-        if missings:
-            for missing in missings:
-                if missing == "cloud":
-                    self.options["cloud"] = True
-                elif missing == "last_backup":
-                    self.options["last_backup"] = ""
-                ...  #后期有新的参数，需在此处添加新的补充逻辑
+        for missing in missings:
+            if missing == "cloud":
+                self.options["cloud"] = True
+            elif missing == "last_backup":
+                self.options["last_backup"] = ""
+            elif missing == "gitee_token":
+                self.options["gitee_token"] = ""
+            elif missing == "gitee_owner":
+                self.options["gitee_owner"] = "Interesting_Cat"
+            elif missing == "gitee_repo":
+                self.options["gitee_repo"] = "cat-vault-server-side-saving"
+            ...  #后期有新的参数，需在此处添加新的补充逻辑

@@ -1,1 +1,7 @@
-{"cloud": true, "last_backup": "2026-10-04 20:17:13"}
+{
+  "cloud": true,
+  "last_backup": "",
+  "gitee_token": "你的Gitee私人令牌",
+  "gitee_owner": "Interesting_Cat",
+  "gitee_repo": "cat-vault-server-side-saving"
+}
