@@ -17,10 +17,20 @@ OPTIONS_FILE = os.path.join(Fix_file.get_base_dir(), "Options.op")
 class Command():
     def __init__(self, main_password=None, CLOUD_URL="http://127.0.0.1:8000"):
         self.CLOUD_URL = CLOUD_URL
-        with open(OPTIONS_FILE,"r") as file:
-            options = json.load(file)
+        if os.path.isfile(OPTIONS_FILE):
+            with open(OPTIONS_FILE, "r", encoding="utf-8") as file:
+                self.options = json.load(file)
+        else:
+            self.options = {
+                "cloud": True,
+                "last_backup": "",
+                "gitee_token": "",
+                "gitee_owner": "",
+                "gitee_repo": "",
+            }
+        extra, missing = self._check_options()
+        self._fix_options(extra, missing)
 
-        self.options = options
         extra,missing = self._check_options()
         self._fix_options(extra, missing)
 
