@@ -1,9 +1,0 @@
-接下来要做的三件事
-第一步：把 Gitee API 封装成一个类
-在你客户端 CatVault/Cloud/ 目录下，新建一个 Gitee_Backup.py，把CatVault云端代码文件夹测试脚本里的三个函数（upload / download / delete）包装成一个类，接口风格和 Save_file.Save、Get_file.Get 保持一致。
-
-第二步：改 Command.py 里的调用
-把 _cloud_backup 和 _cloud_restore 里对 Save_file / Get_file 的调用，换成新的 Gitee_Backup。
-
-第三步：处理 Token 存储
-需要一个地方保存你的 Gitee Token，不然每次启动都要重新输入。
